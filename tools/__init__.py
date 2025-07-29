@@ -6,7 +6,6 @@ Jarvis Tools Package
 from .registry import ToolRegistry
 from .time_tool import TimeTool
 from .calculator_tool import CalculatorTool
-from .weather_tool import WeatherTool
 
 # 创建全局工具注册表
 tool_registry = ToolRegistry()
@@ -14,7 +13,6 @@ tool_registry = ToolRegistry()
 # 注册所有工具
 tool_registry.register(TimeTool())
 tool_registry.register(CalculatorTool())
-# tool_registry.register(WeatherTool())  # 示例工具，可按需启用
 
 # 导出接口
 __all__ = [
@@ -22,5 +20,4 @@ __all__ = [
     'ToolRegistry',
     'TimeTool', 
     'CalculatorTool',
-    'WeatherTool'
 ] 

@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # Jarvis AI助手启动脚本
+# 用法: ./run.sh [--debug] [--log-level LEVEL] [其他参数]
 
 echo "🤖 启动 Jarvis AI助手..."
 echo "================================"
@@ -24,4 +25,10 @@ if [ ! -f ".env" ]; then
 fi
 
 echo "🚀 启动Jarvis..."
-python jarvis.py 
+
+# 传递所有命令行参数到python脚本
+# 示例用法:
+#   ./run.sh --debug                 # 启用调试模式
+#   ./run.sh --log-level WARNING     # 设置日志级别为WARNING
+#   ./run.sh --log-level DEBUG       # 设置日志级别为DEBUG
+python jarvis.py "$@" 
