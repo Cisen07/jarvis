@@ -74,12 +74,25 @@ class JarvisAgent:
 {tools_text}
 
 请根据用户的需求选择合适的工具，并用中文回答用户的问题。
-当你需要获取信息时，请直接调用相应的工具。
 
-重要说明：
+**工具调用规则：**
+1. 当需要调用工具时，使用标准的function_call格式，或者使用以下自定义格式：
+   ```
+   <｜tool▁call▁begin｜>function<｜tool▁sep｜>工具名称
+   ```json
+   {{"参数名": "参数值"}}
+   ```<｜tool▁call▁end｜>
+   ```
+
+2. 一次只能调用一个工具，不要使用多工具调用格式
+
+3. 调用工具后等待结果，然后基于结果继续回答或调用下一个工具
+
+**结束规则：**
 - 当你完成了用户的所有请求并准备给出最终答案时，请在回复的开头加上"[FINAL]"标记
 - 例如："[FINAL]现在是下午3点，计算结果是123。"
-- 只有当你确认已经获取了所有必要信息并能完整回答用户问题时，才使用[FINAL]标记"""
+- 只有当你确认已经获取了所有必要信息并能完整回答用户问题时，才使用[FINAL]标记
+- 没有[FINAL]标记，则表示你还需要继续调用工具获取更多信息"""
         
         return full_message
     
@@ -101,11 +114,17 @@ class JarvisAgent:
         functions = self.get_available_tools()
         
         try:
-            logger.debug("🔄 开始多轮交互处理...")
+            logger.info("🔄 开始自动多轮对话处理...")
             
             # 进行多轮交互，直到没有更多函数调用需要处理
             for iteration in range(self.max_iterations):
-                logger.debug(f"🔄 第 {iteration + 1} 轮交互")
+                logger.info(f"🔄 第 {iteration + 1} 轮对话")
+                
+                # 根据当前轮次输出不同的日志信息
+                if iteration == 0:
+                    logger.info("💭 向LLM发送用户问题，等待分析和响应...")
+                else:
+                    logger.info("💭 向LLM发送工具执行结果，等待进一步处理...")
                 
                 # 调用LLM
                 response = self.llm.chat(
@@ -117,11 +136,11 @@ class JarvisAgent:
                 logger.debug(f"📤 LLM响应类型: {type(response)}")
                 
                 # 处理响应
-                result = self._handle_response_iteration(response, messages, functions)
+                result = self._handle_response_iteration(response, messages, functions, iteration + 1)
                 
                 # 如果返回了最终结果（不是函数调用），则结束循环
                 if result is not None:
-                    logger.info(f"✅ 多轮交互完成，共进行了 {iteration + 1} 轮")
+                    logger.info(f"✅ 多轮交互完成，共进行了 {iteration + 1} 轮对话")
                     return result
             
             # 如果达到最大迭代次数，返回最后的消息内容
@@ -133,21 +152,30 @@ class JarvisAgent:
             logger.debug(f"❌ 错误详情: {traceback.format_exc()}")
             return f"抱歉，处理您的请求时发生了错误: {e}"
     
-    def _handle_response_iteration(self, response, messages: list, functions: list):
+    def _handle_response_iteration(self, response, messages: list, functions: list, round_num: int):
         """处理单次LLM响应迭代"""
         if isinstance(response, list) and len(response) > 0:
             first_response = response[0]
-            logger.debug(f"📤 处理响应: {first_response}")
+            logger.info(f"📤 处理响应: {first_response}")
             
             # 检查是否有函数调用
             if 'function_call' in first_response and first_response['function_call']:
                 # 处理函数调用，但不返回最终结果，继续迭代
-                self._handle_function_call_iteration(first_response, messages, functions)
+                logger.info("🔧 LLM决定调用工具来获取信息")
+                self._handle_function_call_iteration(first_response, messages, functions, round_num)
                 return None  # 继续迭代
             else:
                 # 普通文本响应，检查是否是最终答案
                 content = first_response.get('content', str(first_response))
-                logger.debug("💬 普通文本响应")
+                logger.info(f"💬 LLM提供了文本响应: {content}")
+                
+                # 检查是否包含自定义工具调用格式
+                if self._contains_custom_tool_call(content):
+                    logger.info("🔧 检测到自定义工具调用格式，尝试解析...")
+                    tool_call_result = self._parse_custom_tool_call(content, messages, functions)
+                    if tool_call_result is not None:
+                        return tool_call_result
+                    return None  # 继续迭代
                 
                 # 将助手的回复添加到消息历史中
                 messages.append({
@@ -157,24 +185,23 @@ class JarvisAgent:
                 
                 # 检查是否包含[FINAL]标记，表示LLM认为任务已完成
                 if content.startswith('[FINAL]'):
-                    logger.info("🎯 检测到[FINAL]标记，LLM表示任务已完成")
+                    logger.info("🎯 LLM表示任务已完成（检测到[FINAL]标记）")
                     # 移除[FINAL]标记并返回最终答案
                     final_answer = content.replace('[FINAL]', '').strip()
                     return final_answer
                 
                 # 没有[FINAL]标记，继续迭代让LLM决定下一步
-                logger.debug("💬 没有[FINAL]标记，继续迭代...")
+                logger.info("🤔 LLM可能需要更多信息或进一步思考，继续对话...")
                 return None  # 继续迭代
         else:
             # 其他格式的响应
-            logger.debug("💬 其他格式响应")
+            logger.info("💬 LLM提供了其他格式响应")
             content = str(response)
             messages.append({'role': 'assistant', 'content': content})
             return content
     
-    def _handle_function_call_iteration(self, response, messages: list, functions: list):
+    def _handle_function_call_iteration(self, response, messages: list, functions: list, round_num: int):
         """处理函数调用迭代（不返回最终结果）"""
-        logger.debug("🔧 检测到函数调用")
         
         func_call = response['function_call']
         func_name = func_call['name']
@@ -192,12 +219,28 @@ class JarvisAgent:
             })
             return
         
-        logger.debug(f"📞 调用函数: {func_name}，参数: {func_args}")
-        print(f"🔧 调用工具: {func_name}")
+        logger.info(f"🔧 准备调用工具: {func_name}")
+        logger.info(f"📋 工具参数: {func_args}")
+        print(f"🔧 正在执行: {func_name}")
         
         # 通过工具注册表调用函数
         func_result = self.tool_registry.call_tool(func_name, **func_args)
-        logger.debug(f"📋 函数执行结果: {func_result}")
+        
+        # 简化工具结果用于日志显示
+        try:
+            result_obj = json.loads(func_result)
+            if 'stdout' in result_obj and result_obj['stdout']:
+                preview = result_obj['stdout'][:100] + ('...' if len(result_obj['stdout']) > 100 else '')
+                logger.info(f"✅ 工具执行完成，输出预览: {preview}")
+            elif 'result' in result_obj:
+                preview = str(result_obj['result'])[:100] + ('...' if len(str(result_obj['result'])) > 100 else '')
+                logger.info(f"✅ 工具执行完成，结果预览: {preview}")
+            else:
+                logger.info("✅ 工具执行完成")
+        except:
+            logger.info("✅ 工具执行完成")
+        
+        logger.debug(f"📋 完整工具结果: {func_result}")
         
         # 将函数调用和结果添加到消息历史中
         messages.append({
@@ -214,7 +257,7 @@ class JarvisAgent:
             'content': func_result
         })
         
-        logger.debug("✅ 函数调用完成，继续下一轮迭代...")
+        logger.info("🔄 工具结果已发送给LLM，等待下一步指令...")
     
     def _parse_function_arguments(self, args_str: str) -> dict:
         """解析函数参数"""
@@ -229,6 +272,128 @@ class JarvisAgent:
             return json.loads(args_str)
         else:
             return args_str or {}
+    
+    def _contains_custom_tool_call(self, content: str) -> bool:
+        """检查内容是否包含自定义工具调用格式"""
+        custom_markers = [
+            '<｜tool▁calls▁begin｜>',
+            '<｜tool▁call▁begin｜>',
+            'function<｜tool▁sep｜>',
+            '<｜tool▁call▁end｜>',
+            '<｜tool▁calls▁end｜>'
+        ]
+        return any(marker in content for marker in custom_markers)
+    
+    def _parse_custom_tool_call(self, content: str, messages: list, functions: list):
+        """解析自定义工具调用格式"""
+        try:
+            # 特殊处理：如果只有开始标记但没有完整内容，提示LLM继续
+            if '<｜tool▁calls▁begin｜>' in content and '<｜tool▁call▁begin｜>' not in content:
+                logger.info("🤔 检测到不完整的工具调用开始标记，提示LLM继续...")
+                messages.append({
+                    'role': 'assistant',
+                    'content': content
+                })
+                # 添加提示让LLM继续完成工具调用
+                messages.append({
+                    'role': 'user',
+                    'content': '请继续完成工具调用，使用正确的格式调用需要的工具。'
+                })
+                return None
+            
+            # 检查是否包含完整的工具调用
+            if '<｜tool▁call▁begin｜>' in content and '<｜tool▁call▁end｜>' in content:
+                # 提取工具调用部分
+                start_marker = '<｜tool▁call▁begin｜>'
+                end_marker = '<｜tool▁call▁end｜>'
+                
+                start_pos = content.find(start_marker)
+                end_pos = content.find(end_marker)
+                
+                if start_pos != -1 and end_pos != -1:
+                    tool_call_content = content[start_pos + len(start_marker):end_pos].strip()
+                    logger.info(f"🔍 提取的工具调用内容: {tool_call_content}")
+                    
+                    # 解析函数名和参数
+                    if 'function<｜tool▁sep｜>' in tool_call_content:
+                        parts = tool_call_content.split('function<｜tool▁sep｜>', 1)
+                        if len(parts) == 2:
+                            func_name = parts[1].split('\n')[0].strip()
+                            
+                            # 查找JSON参数
+                            json_start = tool_call_content.find('```json')
+                            json_end = tool_call_content.find('```', json_start + 7)
+                            
+                            if json_start != -1 and json_end != -1:
+                                json_content = tool_call_content[json_start + 7:json_end].strip()
+                                logger.info(f"🔧 准备调用工具: {func_name}")
+                                logger.info(f"📋 工具参数: {json_content}")
+                                
+                                try:
+                                    func_args = json.loads(json_content)
+                                    print(f"🔧 正在执行: {func_name}")
+                                    
+                                    # 通过工具注册表调用函数
+                                    func_result = self.tool_registry.call_tool(func_name, **func_args)
+                                    
+                                    # 简化工具结果用于日志显示
+                                    try:
+                                        result_obj = json.loads(func_result)
+                                        if 'stdout' in result_obj and result_obj['stdout']:
+                                            preview = result_obj['stdout'][:100] + ('...' if len(result_obj['stdout']) > 100 else '')
+                                            logger.info(f"✅ 工具执行完成，输出预览: {preview}")
+                                        elif 'result' in result_obj:
+                                            preview = str(result_obj['result'])[:100] + ('...' if len(str(result_obj['result'])) > 100 else '')
+                                            logger.info(f"✅ 工具执行完成，结果预览: {preview}")
+                                        else:
+                                            logger.info("✅ 工具执行完成")
+                                    except:
+                                        logger.info("✅ 工具执行完成")
+                                    
+                                    logger.debug(f"📋 完整工具结果: {func_result}")
+                                    
+                                    # 将函数调用和结果添加到消息历史中
+                                    messages.append({
+                                        'role': 'assistant',
+                                        'content': None,
+                                        'function_call': {
+                                            'name': func_name,
+                                            'arguments': json_content
+                                        }
+                                    })
+                                    messages.append({
+                                        'role': 'function',
+                                        'name': func_name,
+                                        'content': func_result
+                                    })
+                                    
+                                    logger.info("🔄 工具结果已发送给LLM，等待下一步指令...")
+                                    return None  # 继续迭代
+                                    
+                                except json.JSONDecodeError as e:
+                                    logger.error(f"❌ JSON解析失败: {e}")
+                                    error_msg = f"工具调用参数格式错误: {e}"
+                                    messages.append({
+                                        'role': 'assistant',
+                                        'content': error_msg
+                                    })
+                                    return None
+            
+            # 如果无法解析，将内容添加到消息历史并继续
+            logger.warning("⚠️ 无法解析自定义工具调用格式，作为普通消息处理")
+            messages.append({
+                'role': 'assistant',
+                'content': content
+            })
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ 解析自定义工具调用时出错: {e}")
+            messages.append({
+                'role': 'assistant',
+                'content': f"工具调用解析错误: {e}"
+            })
+            return None
 
 
 def main():

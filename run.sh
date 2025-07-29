@@ -12,11 +12,11 @@ if [[ "$CONDA_DEFAULT_ENV" != "qwen" ]]; then
     source conda activate qwen
 fi
 
-# 检查依赖
-if ! python -c "import qwen_agent" 2>/dev/null; then
-    echo "📦 安装依赖..."
-    pip install -r requirements.txt
-fi
+# # 检查依赖
+# if ! python -c "import qwen_agent" 2>/dev/null; then
+#     echo "📦 安装依赖..."
+#     pip install -r requirements.txt
+# fi
 
 # 检查.env文件
 if [ ! -f ".env" ]; then
