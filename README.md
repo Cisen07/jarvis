@@ -28,7 +28,6 @@ jarvis/
     ├── registry.py       # 工具注册表管理
     ├── time_tool.py      # 时间查询工具
     ├── calculator_tool.py # 计算器工具
-    ├── weather_tool.py   # 天气查询工具(示例)
     └── create_tool.py    # 新工具创建脚本
 ```
 
@@ -72,6 +71,7 @@ python jarvis.py
 支持的功能：
 - **时间查询**: "现在几点了？"、"what time is it?"
 - **数学计算**: "计算3*14/2"、"帮我算一下sqrt(16)"
+- **终端命令**: "执行ls -la命令"、"查看当前目录"、"运行pwd命令"
 - **普通对话**: 任何其他问题
 
 ### 基础示例
@@ -97,7 +97,13 @@ python hello_world.py
    - 支持数学函数 (sqrt, sin, cos, etc.)
    - 安全的表达式解析
 
-3. **get_weather** - 天气查询 (示例，未启用)
+3. **execute_terminal_command** - 终端命令执行
+   - 文件: `tools/terminal_tool.py`
+   - 支持大部分常见命令行操作 (ls, pwd, echo, cat等)
+   - 包含安全检查，禁止危险命令
+   - 30秒执行超时保护
+
+4. **get_weather** - 天气查询 (示例，未启用)
    - 文件: `tools/weather_tool.py`
    - 模拟天气数据，可扩展为真实API
 
