@@ -1,0 +1,5 @@
+qwen-agent[gui,rag,code_interpreter,mcp]>=0.0.29
+openai>=1.0.0
+python-dotenv>=1.0.0
+pytz>=2023.3
+json5>=0.9.6 
